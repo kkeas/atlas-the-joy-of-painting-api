@@ -5,20 +5,27 @@ const fs = require('fs');
 
 const colors = [];
 const subjects = [];
-const dates = [];
+const monthsList = [];
 const outputFile = '../data/transformedData.json';
-let paintingList
+let rowIndex = 0
 
 // parse data from txt file - only the month
 fs.readFile('../data/episodeDates.txt', 'utf8', (err, txtData) => {
     if (err) {
-        console.log(`Error reading txt file:`, err);
-    return;
-}
+      console.log(`Error reading txt file:`, err);
+      return;
+    }
 
-var dates = parseDatesFromTxt(txtData);
-console.log(`Parsed txt file: `, dates)
+    var dates = parseDatesFromTxt(txtData);
+    // console.log(`Parsed txt file:`, dates);
+
+    const transformedMonths = transformMonths(dates, rowIndex);
+    monthsList.push(transformedMonths);
+    // console.log(`Transformed months:`, monthsList);
+
+    writeToJSONFile();
 });
+
 
 function parseDatesFromTxt(txtData) {
     const lines = txtData.split('\n');
@@ -35,11 +42,24 @@ function parseDatesFromTxt(txtData) {
     return months;
 }
 
+function transformMonths(dates, index) {
+    rowIndex = index;
+    const transformedMonths = dates.map((month, index) => {
+        return {
+          id: index + 1,
+          month: month
+        };
+      });
+      return transformedMonths;
+  }
+
+
 // colors used - take actual names from 9th column syntax: "['x', 'y', 'z']"
 
 let rowIndexColors = 0;
 
-fs.createReadStream('../data/colorsUsed.csv')
+colorsReadStream = fs.createReadStream('../data/colorsUsed.csv')
+colorsReadStream
     .pipe(csv.parse({
     delimiter: ',',
     newline: '\n',
@@ -56,18 +76,24 @@ fs.createReadStream('../data/colorsUsed.csv')
         const readableColors = transformColors(colorsUsed, rowIndexColors);
         colors.push(readableColors);
         rowIndexColors++;
+        // close file
+        colorsArray = colors;
     })
+
     .on('end', () => {
         console.log('Transformed colors:', colors);
+        colorsReadStream.destroy();
+        writeToJSONFile();
       });
 
-    //grab subject matter based on corresponding 
+// grab subject matter based on corresponding 
 
-    let rowIndexSubjects = 0;
+let rowIndexSubjects = 0;
 
-    fs.createReadStream('../data/subjectMatter.csv')
-        .pipe(csv.parse({
-            delimiter: ',',
+subjectsReadStream = fs.createReadStream('../data/subjectMatter.csv')
+subjectsReadStream
+    .pipe(csv.parse({
+        delimiter: ',',
             newline: '\n',
             trim: true,
             relaxColumnCount: true
@@ -86,16 +112,13 @@ fs.createReadStream('../data/colorsUsed.csv')
         })
         .on('end', () => {
             console.log('Transformed subjects:', subjects);
+            subjectsReadStream.destroy();
+            writeToJSONFile();
           });
 
-        // merging json arrays
-        const mergedData = subjects.map((subject, rowIndex) => {
-            return Object.assign({}, subject, colors[rowIndex]);
-        });
-
-        function transformSubjects(row, rowIndex) {
+        function transformSubjects(row, index) {
             const headersData = row.slice(2); // Exclude the first two columns (EPISODE and TITLE)
-
+            rowIndex = index
             const result = [];
                 for (let i = 0; i < headersData.length; i++) {
                     if (headersData[i] === '1') {
@@ -104,26 +127,40 @@ fs.createReadStream('../data/colorsUsed.csv')
                 }
 
                 return {
-                    id: rowIndex,
+                    id: index,
                     matchedColumns: result
                 };
         }
 
-        function transformColors(colors, rowIndex) {
+        function transformColors(colors, index) {
             const colorsColumn = colors[8]; // Access the 9th column (index 8)
             const parsedColorsColumn = JSON.parse(colorsColumn.replace(/'/g, '"'));
+            rowIndex = index;
             
             return {
-                id: rowIndex,
+                id: index,
                 colors: parsedColorsColumn,
             };
         };
 
-         // write to JSON file
-        fs.writeFile(outputFile, JSON.stringify(mergedData, null, 4), (err) => {
-            if (err) {
-                console.error('Error writing JSON file:', err);
-            } else {
-                console.log('JSON file has been saved:', outputFile);
+        function writeToJSONFile() {
+            if (colors.length === subjects.length && subjects.length === monthsList.length) {
+              const mergedData = subjects.map((subject, rowIndex) => {
+                return {
+                  [rowIndex]: {
+                    subject: subject.matchedColumns,
+                    color: colors[rowIndex].colors,
+                    month: monthsList[0][rowIndex].months
+                  }
+                };
+              });
+          
+              fs.writeFile(outputFile, JSON.stringify(mergedData, null, 2), (err) => {
+                if (err) {
+                  console.error('Error writing JSON file:', err);
+                } else {
+                  console.log('JSON file has been saved:', outputFile);
+                }
+              });
             }
-        });
+          };
